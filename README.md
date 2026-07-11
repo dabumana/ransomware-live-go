@@ -71,74 +71,86 @@ client := ransomware.NewClient(
 
 ### Groups
 
-Method Endpoint Description
-ListGroups() ([]GroupSummary, error) GET /groups Returns all tracked ransomware groups with victim counts.
-GetGroup(name string) (*GroupDetail, error) GET /groups/{groupname} Returns comprehensive intelligence about a specific ransomware group, including description, victims, firstseen/lastseen, locations (Tor/clearweb URLs), TTPs (MITRE ATT&CK), vulnerabilities (CVEs with CVSS scores), tools, negotiation/ransomnote availability.
+|Method | Endpoint |Description|
+|-------|----------|-----------|
+|ListGroups() ([]GroupSummary, error) | GET /groups | Returns all tracked ransomware groups with victim counts.|
+|GetGroup(name string) (*GroupDetail, error) | GET /groups/{groupname} | Returns comprehensive intelligence about a specific ransomware group, including description, victims, firstseen/lastseen, locations (Tor/clearweb URLs), TTPs (MITRE ATT&CK), vulnerabilities (CVEs with CVSS scores), tools, negotiation/ransomnote availability.|
 
 ### Victims
 
-Method Endpoint Description
-GetRecentVictims(order string) ([]Victim, error) GET /victims/recent Returns the 100 most recent active victims, enriched with screenshot, infostealer data, press coverage, and permalink.
-ListVictims(filter VictimFilter) ([]Victim, error) GET /victims/ Returns victims matching the provided filters (at least one filter is required).
-SearchVictims(q string, filter VictimFilter) ([]Victim, error) GET /victims/search Full‑text search across victim names and website domains, with optional secondary filters.
-GetVictim(victimID string) (*VictimDetail, error) GET /victim/{victim_id} Returns enriched details for a single victim. The victim_id is a Base64‑encoded string of post_title@group_name (obtainable from the id field in any victim listing).
+|Method | Endpoint | Description|
+|-------|----------|------------|
+|GetRecentVictims(order string) ([]Victim, error) | GET /victims/recent | Returns the 100 most recent active victims, enriched with screenshot, infostealer data, press coverage, and permalink.|
+|ListVictims(filter VictimFilter) ([]Victim, error) | GET /victims/ | Returns victims matching the provided filters (at least one filter is required).|
+|SearchVictims(q string, filter VictimFilter) ([]Victim, error) | GET /victims/search | Full‑text search across victim names and website domains, with optional secondary filters.|
+|GetVictim(victimID string) (*VictimDetail, error) | GET /victim/{victim_id} | Returns enriched details for a single victim. The victim_id is a Base64‑encoded string of post_title@group_name (obtainable from the id field in any victim listing).|
 
 ### Indicators of Compromise (IoCs)
 
-Method Endpoint Description
-ListIOCGroups(iocType string) ([]IOCGroup, error) GET /iocs Returns all ransomware groups that have IOCs, with a breakdown of IOC types and counts. Use ?type= to filter groups that have a specific IOC type (e.g. md5, ip, btc).
-GetGroupIOCs(group string, iocType string) (*GroupIOCs, error) GET /iocs/{group} Returns all IOCs for a specific ransomware group, organised by type (e.g. md5, ip, domain). Use ?type= to retrieve only one IOC type.
+|Method | Endpoint | Description|
+|-------|----------|------------|
+|ListIOCGroups(iocType string) ([]IOCGroup, error) GET /iocs Returns all ransomware groups that have IOCs, with a breakdown of IOC types and counts. Use ?type= to filter groups that have a specific IOC type (e.g. md5, ip, btc).
+|GetGroupIOCs(group string, iocType string) (*GroupIOCs, error) GET /iocs/{group} Returns all IOCs for a specific ransomware group, organised by type (e.g. md5, ip, domain). Use ?type= to retrieve only one IOC type.
 
 ### Negotiation Chats
 
-Method Endpoint Description
-ListNegotiationGroups() ([]NegotiationGroup, error) GET /negotiations Lists all ransomware groups that have leaked negotiation chat logs available, with a count of chats per group.
-ListNegotiationChats(group string) ([]NegotiationChat, error) GET /negotiations/{group} Returns metadata for all available negotiation chats for a given group (chat ID, message count, initial ransom, negotiated ransom, paid status).
-GetNegotiationChat(group, chatID string) (*NegotiationChatDetail, error) GET /negotiations/{group}/{chat_id} Returns the complete message thread and ransom metadata for a specific negotiation chat.
+|Method | Endpoint | Description|
+|-------|----------|------------|
+|ListNegotiationGroups() ([]NegotiationGroup, error) | GET /negotiations | Lists all ransomware groups that have leaked negotiation chat logs available, with a count of chats per group.|
+|ListNegotiationChats(group string) ([]NegotiationChat, error) | GET /negotiations/{group} | Returns metadata for all available negotiation chats for a given group (chat ID, message count, initial ransom, negotiated ransom, paid status).|
+|GetNegotiationChat(group, chatID string) (*NegotiationChatDetail, error) | GET /negotiations/{group}/{chat_id} | Returns the complete message thread and ransom metadata for a specific negotiation chat.|
 
 ### Ransom Notes
 
-Method Endpoint Description
-ListRansomNoteGroups() ([]RansomNoteGroup, error) GET /ransomnotes Lists all ransomware groups that have at least one ransom note on file, with a count of notes per group.
-ListRansomNotes(group string) ([]string, error) GET /ransomnotes/{group} Returns the list of ransom note identifiers (filenames without extension) for a group.
-GetRansomNote(group, noteName string) (*RansomNote, error) GET /ransomnotes/{group}/{note_name} Returns the full text content of a specific ransom note (supported formats: .txt, .html, .md).
+|Method | Endpoint | Description|
+|-------|----------|------------|
+|ListRansomNoteGroups() ([]RansomNoteGroup, error) | GET /ransomnotes | Lists all ransomware groups that have at least one ransom note on file, with a count of notes per group.|
+|ListRansomNotes(group string) ([]string, error) | GET /ransomnotes/{group} | Returns the list of ransom note identifiers (filenames without extension) for a group.|
+|GetRansomNote(group, noteName string) (*RansomNote, error) | GET /ransomnotes/{group}/{note_name} | Returns the full text content of a specific ransom note (supported formats: .txt, .html, .md).|
 
 ### YARA Rules
 
-Method Endpoint Description
-ListYARAGroups() ([]YARAGroup, error) GET /yara Lists all ransomware groups that have associated YARA detection rules, with a count of rule files per group.
-GetYARARules(group string) ([]YARARule, error) GET /yara/{group} Returns all YARA rules for a specific ransomware group (filename + full rule content).
+|Method | Endpoint | Description|
+|-------|----------|------------|
+|ListYARAGroups() ([]YARAGroup, error) | GET /yara | Lists all ransomware groups that have associated YARA detection rules, with a count of rule files per group.|
+|GetYARARules(group string) ([]YARARule, error) | GET /yara/{group} | Returns all YARA rules for a specific ransomware group (filename + full rule content).|
 
 ### Press / Cyberattack Entries
 
-Method Endpoint Description
-ListPressEntries(year, month, country string) ([]PressEntry, error) GET /press/all Returns all tracked cyberattack press entries, enriched with HudsonRock infostealer data and a ransomware link if the victim domain matches a known victim. Results sorted by date descending.
-GetRecentPressEntries(country string) ([]PressEntry, error) GET /press/recent Returns the 100 most recent cyberattack press entries, enriched with infostealer data and ransomware link. Optional country filter.
+|Method | Endpoint | Description|
+|-------|----------|------------|
+|ListPressEntries(year, month, country string) ([]PressEntry, error) | GET /press/all | Returns all tracked cyberattack press entries, enriched with HudsonRock infostealer data and a ransomware link if the victim domain matches a known victim. Results sorted by date descending.|
+|GetRecentPressEntries(country string) ([]PressEntry, error) | GET /press/recent | Returns the 100 most recent cyberattack press entries, enriched with infostealer data and ransomware link. Optional country filter.|
 
 ### CSIRT Contacts
 
-Method Endpoint Description
-GetCSIRTContacts(country string) ([]CSIRTContact, error) GET /csirt/{country} Returns all CSIRT/CERT contacts for the given country. Accepts both ISO 3166-1 alpha-2 (e.g. FR) and alpha-3 (e.g. FRA) codes.
+|Method | Endpoint | Description|
+|-------|----------|------------|
+|GetCSIRTContacts(country string) ([]CSIRTContact, error) | GET /csirt/{country} | Returns all CSIRT/CERT contacts for the given country. Accepts both ISO 3166-1 alpha-2 (e.g. FR) and alpha-3 (e.g. FRA) codes.|
 
 ### SEC Form 8-K Filings
 
-Method Endpoint Description
-GetSECFilings(ticker, cik, year, month string, item105, item801 bool) ([]SECFiling, error) GET /8k Returns SEC Form 8‑K filings related to cybersecurity incidents (Item 1.05 – Material Cybersecurity Incidents, mandatory since Dec 2023; Item 8.01 – Other Events).
+|Method | Endpoint | Description|
+|-------|----------|------------|
+|GetSECFilings(ticker, cik, year, month string, item105, item801 bool) ([]SECFiling, error) | GET /8k | Returns SEC Form 8‑K filings related to cybersecurity incidents (Item 1.05 - Material Cybersecurity Incidents, mandatory since Dec 2023; Item 8.01 – Other Events).|
 
 ### Sectors
 
-Method Endpoint Description
-ListSectors() ([]Sector, error) GET /listsectors Returns all unique sector/industry values from the victim database, sorted alphabetically, with a count of victims per sector.
+|Method | Endpoint | Description|
+|-------|----------|------------|
+|ListSectors() ([]Sector, error) | GET /listsectors | Returns all unique sector/industry values from the victim database, sorted alphabetically, with a count of victims per sector.|
 
 ### Statistics
 
-Method Endpoint Description
-GetStats() (*Stats, error) GET /stats Returns high‑level statistics: total victim count, number of tracked ransomware groups, number of press/cyberattack entries, and the timestamp of the most recently discovered victim.
+|Method | Endpoint | Description|
+|-------|----------|------------|
+|GetStats() (*Stats, error) | GET /stats | Returns high‑level statistics: total victim count, number of tracked ransomware groups, number of press/cyberattack entries, and the timestamp of the most recently discovered victim.|
 
 ### Validation
 
-Method Endpoint Description
-ValidateKey() (*ValidationResponse, error) GET /validate Checks if the provided X-API-KEY header is valid and returns the associated client identifier.
+|Method | Endpoint | Description|
+|-------|----------|------------|
+|ValidateKey() (*ValidationResponse, error) | GET /validate | Checks if the provided X-API-KEY header is valid and returns the associated client identifier.|
 
 ### Data Types
 
@@ -149,20 +161,21 @@ Common Date and Country Fields
 
 ### Filtering
 
-VictimFilter
+#### VictimFilter
 
 Used with ListVictims and SearchVictims:
 
-Field Type Description
-Group string Ransomware group name, case‑insensitive exact match.
-Sector string Victim sector/industry, case‑insensitive exact match (use ListSectors to get valid values).
-Country string ISO 3166‑1 alpha‑2 country code, uppercase (e.g. US, FR).
-Year string 4‑digit year (e.g. 2024).
-Month string 2‑digit month, requires Year (e.g. 03).
-Date string Which date field to filter on: "discovered" (default) or "attacked".
-Order string Sort order for recent victims: "discovered" (default) or "attacked".
+|Field | Type | Description|
+|------|------|------------|
+|Group | string | Ransomware group name, case‑insensitive exact match.
+|Sector | string | Victim sector/industry, case‑insensitive exact match (use ListSectors to get valid values).
+|Country | string | ISO 3166‑1 alpha‑2 country code, uppercase (e.g. US, FR).
+|Year | string | 4‑digit year (e.g. 2024).
+|Month | string | 2‑digit month, requires Year (e.g. 03).
+|Date | string | Which date field to filter on: "discovered" (default) or "attacked".
+|Order | string | Sort order for recent victims: "discovered" (default) or "attacked".
 
-Note: ListVictims requires at least one filter to be set.
+**Note**: ListVictims requires at least one filter to be set.
 
 ### Error Handling
 
