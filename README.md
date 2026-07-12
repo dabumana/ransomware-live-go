@@ -7,7 +7,7 @@ A Go client for the Ransomware.live API, a comprehensive threat intelligence fee
 ## Installation
 
 ```bash
-go get github.com/dabumana/ransomware
+go get github.com/dabumana/ransomware-live-go
 ```
 
 Replace with your actual module path if publishing.
@@ -20,7 +20,7 @@ package main
 import (
     "fmt"
     "log"
-    "github.com/dabumana/ransomware"
+    ransomware "github.com/dabumana/ransomware-live-go"
 )
 
 func main() {
@@ -156,8 +156,8 @@ client := ransomware.NewClient(
 
 Common Date and Country Fields
 
-* Date fields – attackdate is the estimated attack/publication date; discovered is when ransomware.live first observed the listing.
-* Country codes – Use ISO 3166-1 alpha-2 (2-letter, e.g. US, FR) unless stated otherwise.
+* Date fields - attackdate is the estimated attack/publication date; discovered is when ransomware.live first observed the listing.
+* Country codes - Use ISO 3166-1 alpha-2 (2-letter, e.g. US, FR) unless stated otherwise.
 
 ### Filtering
 
@@ -181,10 +181,10 @@ Used with ListVictims and SearchVictims:
 
 The client returns standard Go errors. Common errors:
 
-* HTTP 429 – Rate limit exceeded (500,000 requests/month).
-* HTTP 401/403 – Invalid or missing API key.
-* HTTP 404 – Resource not found (e.g., invalid group name, victim ID, or chat ID).
-* HTTP 400 – Invalid parameters (e.g., missing required fields).
+* HTTP 429 - Rate limit exceeded (500,000 requests/month).
+* HTTP 401/403 - Invalid or missing API key.
+* HTTP 404 - Resource not found (e.g., invalid group name, victim ID, or chat ID).
+* HTTP 400 - Invalid parameters (e.g., missing required fields).
 
 ### Examples
 
@@ -332,9 +332,9 @@ fmt.Printf("Valid key for client: %s\n", resp.ClientID)
 
 ## Important Notes
 
-* Authentication – All endpoints require an X-API-KEY header. Obtain a free key from ransomware.live/my.
-* Rate Limits – 500,000 requests per month per key.
-* Date Fields – attackdate is the estimated attack/publication date; discovered is when ransomware.live first observed the listing.
-* Country Codes – Use ISO 3166-1 alpha-2 (2-letter, e.g. US, FR) unless stated otherwise.
-* Pagination – The API does not expose explicit pagination for all endpoints. The /victims/recent endpoint always returns the 100 most recent entries. For historical data, use the filtered /victims/ endpoint with date filters.
-* IOC Endpoints – IOC endpoints are not rate‑limited, but fair use applies.
+* Authentication - All endpoints require an X-API-KEY header. Obtain a free key from ransomware.live/my.
+* Rate Limits - 500,000 requests per month per key.
+* Date Fields - attackdate is the estimated attack/publication date; discovered is when ransomware.live first observed the listing.
+* Country Codes - Use ISO 3166-1 alpha-2 (2-letter, e.g. US, FR) unless stated otherwise.
+* Pagination - The API does not expose explicit pagination for all endpoints. The /victims/recent endpoint always returns the 100 most recent entries. For historical data, use the filtered /victims/ endpoint with date filters.
+* IOC Endpoints - IOC endpoints are not rate‑limited, but fair use applies.
