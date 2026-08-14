@@ -8,6 +8,7 @@ import (
 	"io"
 	"net/http"
 	"net/url"
+	"sort"
 	"strconv"
 	"strings"
 	"time"
@@ -73,6 +74,50 @@ type GroupSummary struct {
 	Victims int     `json:"victims"`
 }
 
+// GroupSummaryList is a []GroupSummary that tolerates both a bare array
+// and the envelope objects returned by the API (e.g. {"groups": [...]}).
+type GroupSummaryList []GroupSummary
+
+func (g *GroupSummaryList) UnmarshalJSON(data []byte) error {
+	var items []GroupSummary
+	if err := json.Unmarshal(data, &items); err == nil {
+		*g = items
+		return nil
+	}
+	var env struct {
+		Data    []GroupSummary `json:"data"`
+		Groups  []GroupSummary `json:"groups"`
+		Results []GroupSummary `json:"results"`
+		Items   []GroupSummary `json:"items"`
+		Entries []GroupSummary `json:"entries"`
+		Message string         `json:"message"`
+	}
+	if err := json.Unmarshal(data, &env); err != nil {
+		return err
+	}
+	switch {
+	case env.Groups != nil:
+		*g = env.Groups
+	case env.Data != nil:
+		*g = env.Data
+	case env.Results != nil:
+		*g = env.Results
+	case env.Items != nil:
+		*g = env.Items
+	case env.Entries != nil:
+		*g = env.Entries
+	case env.Message != "":
+		return fmt.Errorf("ransomware.live: %s", env.Message)
+	default:
+		body := string(data)
+		if len(body) > maxErrorBodyLen {
+			body = body[:maxErrorBodyLen] + "..."
+		}
+		return fmt.Errorf("ransomware.live: unexpected group list response: %s", body)
+	}
+	return nil
+}
+
 type Vulnerability struct {
 	ID   string  `json:"id"`
 	CVSS float64 `json:"cvss"`
@@ -90,7 +135,7 @@ type GroupDetail struct {
 	Locations        LocationList      `json:"locations"`
 	TTPs             TTPList           `json:"ttps"`
 	Vulnerabilities  VulnerabilityList `json:"vulnerabilities"`
-	Tools            []string          `json:"tools"`
+	Tools            ToolList          `json:"tools"`
 	HasNegotiations  bool              `json:"has_negotiations"`
 	NegotiationCount int               `json:"negotiation_count"`
 	HasRansomNote    bool              `json:"has_ransomnote"`
@@ -103,6 +148,43 @@ type GroupDetail struct {
 	RansomNotes      bool              `json:"ransomnotes,omitempty"`      // legacy alias
 	YARA             bool              `json:"yara,omitempty"`             // legacy alias
 	IOCs             bool              `json:"iocs,omitempty"`             // legacy alias
+}
+
+// ToolList holds the tools and malware families used by a group. The API
+// returns them either as an array of strings or as an object grouping the
+// tools and malware families, so decoding is lenient: object values are
+// flattened into a single list of names.
+type ToolList []string
+
+func (t *ToolList) UnmarshalJSON(data []byte) error {
+	var strs []string
+	if err := json.Unmarshal(data, &strs); err == nil {
+		*t = strs
+		return nil
+	}
+	var obj map[string]json.RawMessage
+	if err := json.Unmarshal(data, &obj); err != nil {
+		return err
+	}
+	keys := make([]string, 0, len(obj))
+	for k := range obj {
+		keys = append(keys, k)
+	}
+	sort.Strings(keys)
+	var out []string
+	for _, k := range keys {
+		var s string
+		if err := json.Unmarshal(obj[k], &s); err == nil {
+			out = append(out, s)
+			continue
+		}
+		var list []string
+		if err := json.Unmarshal(obj[k], &list); err == nil {
+			out = append(out, list...)
+		}
+	}
+	*t = out
+	return nil
 }
 
 type InfostealerData struct {
@@ -250,6 +332,32 @@ type YARARule struct {
 	Content  string `json:"content"`
 }
 
+// PressRansomware holds the ransomware link attached to a press entry
+// when the victim domain matches a known victim. The API returns it as a
+// link (string) or as an object with victim details, so decoding is
+// lenient: a string is stored in URL.
+type PressRansomware struct {
+	Victim  string `json:"victim"`
+	Group   string `json:"group"`
+	Website string `json:"website"`
+	URL     string `json:"url"`
+}
+
+func (r *PressRansomware) UnmarshalJSON(data []byte) error {
+	var s string
+	if err := json.Unmarshal(data, &s); err == nil {
+		r.URL = s
+		return nil
+	}
+	type plain PressRansomware
+	var raw plain
+	if err := json.Unmarshal(data, &raw); err != nil {
+		return err
+	}
+	*r = PressRansomware(raw)
+	return nil
+}
+
 type PressEntry struct {
 	ID          string           `json:"id"`
 	Title       string           `json:"title"`
@@ -258,11 +366,7 @@ type PressEntry struct {
 	Date        string           `json:"date"`
 	Country     string           `json:"country"`
 	Infostealer *InfostealerData `json:"infostealer,omitempty"`
-	Ransomware  *struct {
-		Victim  string `json:"victim"`
-		Group   string `json:"group"`
-		Website string `json:"website"`
-	} `json:"ransomware,omitempty"`
+	Ransomware  *PressRansomware `json:"ransomware,omitempty"`
 }
 
 type CSIRTContact struct {
@@ -482,9 +586,9 @@ func (c *Client) ListGroups() ([]GroupSummary, error) {
 }
 
 func (c *Client) ListGroupsWithContext(ctx context.Context) ([]GroupSummary, error) {
-	var out []GroupSummary
+	var out GroupSummaryList
 	err := c.get(ctx, "groups", nil, &out)
-	return out, err
+	return []GroupSummary(out), err
 }
 
 func (l *LocationList) UnmarshalJSON(data []byte) error {

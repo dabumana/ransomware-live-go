@@ -171,6 +171,61 @@ func TestListGroups(t *testing.T) {
 	}
 }
 
+func TestGroupListUnmarshal(t *testing.T) {
+	t.Run("plain array", func(t *testing.T) {
+		var gl GroupSummaryList
+		if err := json.Unmarshal([]byte(`[{"group":"lockbit","victims":1}]`), &gl); err != nil {
+			t.Fatal(err)
+		}
+		if len(gl) != 1 || gl[0].Group != "lockbit" {
+			t.Fatalf("bad plain array: %+v", gl)
+		}
+	})
+
+	for _, key := range []string{"data", "groups", "results", "items", "entries"} {
+		t.Run("envelope "+key, func(t *testing.T) {
+			var gl GroupSummaryList
+			body := `{"` + key + `":[{"group":"lockbit","victims":1}],"count":1}`
+			if err := json.Unmarshal([]byte(body), &gl); err != nil {
+				t.Fatal(err)
+			}
+			if len(gl) != 1 || gl[0].Group != "lockbit" {
+				t.Fatalf("bad %s envelope: %+v", key, gl)
+			}
+		})
+	}
+
+	t.Run("message", func(t *testing.T) {
+		var gl GroupSummaryList
+		err := json.Unmarshal([]byte(`{"message":"no groups found"}`), &gl)
+		if err == nil || !strings.Contains(err.Error(), "no groups found") {
+			t.Fatalf("expected message error, got %v", err)
+		}
+	})
+
+	t.Run("unexpected object", func(t *testing.T) {
+		var gl GroupSummaryList
+		if err := json.Unmarshal([]byte(`{"foo":"bar"}`), &gl); err == nil {
+			t.Fatal("expected error for unexpected object")
+		}
+	})
+}
+
+func TestListGroupsObjectEnvelope(t *testing.T) {
+	c, ts := newTestClient(t, func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/groups" {
+			t.Fatalf("bad path %s", r.URL.Path)
+		}
+		_, _ = io.WriteString(w, `{"groups":[{"group":"lockbit","victims":10}],"count":1}`)
+	})
+	defer ts.Close()
+
+	out, err := c.ListGroups()
+	if err != nil || len(out) != 1 || out[0].Group != "lockbit" || out[0].Victims != 10 {
+		t.Fatalf("bad envelope decode: %+v, %v", out, err)
+	}
+}
+
 func TestGetGroup(t *testing.T) {
 	body := `{
 		"group":"lockbit",
@@ -245,6 +300,46 @@ func TestGetGroupFlexibleLists(t *testing.T) {
 	}
 	if !out.NegotiationChats || !out.RansomNotes || !out.YARA || !out.IOCs {
 		t.Fatal("bad legacy flags")
+	}
+}
+
+func TestGetGroupToolsObject(t *testing.T) {
+	c, ts := newTestClient(t, func(w http.ResponseWriter, r *http.Request) {
+		_, _ = io.WriteString(w, `{
+			"group":"g",
+			"tools":{
+				"malware":["lockbit 3.0"],
+				"tools":["mimikatz","cobalt strike"],
+				"note":"single string value"
+			}
+		}`)
+	})
+	defer ts.Close()
+
+	out, err := c.GetGroup("g")
+	if err != nil {
+		t.Fatal(err)
+	}
+	got := strings.Join(out.Tools, ",")
+	for _, want := range []string{"lockbit 3.0", "mimikatz", "cobalt strike", "single string value"} {
+		if !strings.Contains(got, want) {
+			t.Fatalf("missing tool %q in %v", want, out.Tools)
+		}
+	}
+}
+
+func TestGetGroupToolsNull(t *testing.T) {
+	c, ts := newTestClient(t, func(w http.ResponseWriter, r *http.Request) {
+		_, _ = io.WriteString(w, `{"group":"g","tools":null}`)
+	})
+	defer ts.Close()
+
+	out, err := c.GetGroup("g")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(out.Tools) != 0 {
+		t.Fatalf("expected empty tools, got %v", out.Tools)
 	}
 }
 
@@ -889,6 +984,29 @@ func TestListPressEntriesInfostealerObject(t *testing.T) {
 	}
 	if out[0].Infostealer == nil || out[0].Infostealer.Users != 198 {
 		t.Fatalf("bad infostealer: %+v", out[0].Infostealer)
+	}
+}
+
+func TestPressEntryRansomwareLink(t *testing.T) {
+	var p PressEntry
+	body := `{"id":"1","title":"t","ransomware":"https://www.ransomware.live/id/xyz"}`
+	if err := json.Unmarshal([]byte(body), &p); err != nil {
+		t.Fatal(err)
+	}
+	if p.Ransomware == nil || p.Ransomware.URL != "https://www.ransomware.live/id/xyz" {
+		t.Fatalf("bad ransomware link: %+v", p.Ransomware)
+	}
+}
+
+func TestPressEntryRansomwareObject(t *testing.T) {
+	var p PressEntry
+	body := `{"id":"1","title":"t","ransomware":{"victim":"v1","group":"g1","website":"v1.com"}}`
+	if err := json.Unmarshal([]byte(body), &p); err != nil {
+		t.Fatal(err)
+	}
+	if p.Ransomware == nil || p.Ransomware.Victim != "v1" ||
+		p.Ransomware.Group != "g1" || p.Ransomware.Website != "v1.com" {
+		t.Fatalf("bad ransomware object: %+v", p.Ransomware)
 	}
 }
 
