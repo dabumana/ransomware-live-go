@@ -261,15 +261,6 @@ for _, f := range filings {
 }
 ```
 
-## Live tests
-
-The repository ships with an environment-gated live test that exercises the
-real API with your key:
-
-```bash
-RANSOMWARE_LIVE_API_KEY=your-key go test -run TestLivePRO -count=1 -v .
-```
-
 ## Important notes
 
 * **Authentication** — all endpoints require an `X-API-KEY` header. Obtain a
