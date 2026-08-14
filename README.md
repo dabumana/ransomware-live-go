@@ -1,6 +1,12 @@
 # Ransomware.live - Go Client
 
-A Go client for the Ransomware.live API, a comprehensive threat intelligence feed tracking ransomware groups, victims, indicators of compromise (IoCs), negotiation chats, ransom notes, and more. 
+A Go client for the authenticated Ransomware.live **PRO API**
+(`https://api-pro.ransomware.live`), a comprehensive threat intelligence
+feed tracking ransomware groups, victims, indicators of compromise (IoCs),
+negotiation chats, ransom notes, YARA rules, SEC 8-K filings and more.
+
+The implementation follows the official
+[PRO API documentation](https://api-pro.ransomware.live/docs).
 
 ---
 
@@ -12,7 +18,10 @@ go get github.com/dabumana/ransomware-live-go
 
 Replace with your actual module path if publishing.
 
-###  Quick Start
+## Quick start
+
+All endpoints require an `X-API-KEY` header. Get a free key at
+[ransomware.live/my](https://www.ransomware.live/my).
 
 ```go
 package main
@@ -25,9 +34,16 @@ import (
 
 func main() {
     client := ransomware.NewClient("YOUR_API_KEY")
-    
-    // Get recent victims
-    victims, err := client.GetRecentVictims()
+
+    // Check that the key is valid before doing anything else.
+    validation, err := client.ValidateKey()
+    if err != nil {
+        log.Fatal(err)
+    }
+    fmt.Printf("valid key for client %q\n", validation.ClientID)
+
+    // Get recent victims.
+    victims, err := client.GetRecentVictims("")
     if err != nil {
         log.Fatal(err)
     }
@@ -37,170 +53,146 @@ func main() {
 }
 ```
 
-## Authentication
-
-All endpoints require an X-API-KEY header. You must obtain a free API key from ransomware.live/my.
-
-Pass it to NewClient:
-
-```go
-client := ransomware.NewClient("your-api-key")
-```
-
-Rate Limits: 500,000 requests per month per key. Requests beyond this quota return HTTP 429.
-
-### Client Configuration
-
-You can customise the client with optional Option functions:
-
-### Option Description
-* **WithHTTPClient(http.Client)** Use a custom HTTP client (e.g., with proxy).
-* **WithBaseURL(string)** Override the base URL (useful for testing).
-
-Example:
+## Client configuration
 
 ```go
 customClient := &http.Client{Timeout: 30 * time.Second}
 client := ransomware.NewClient(
     "api-key",
-    ransomware.WithHTTPClient(customClient),
-    ransomware.WithBaseURL("https://custom-api.example.com"),
+    ransomware.WithHTTPClient(customClient), // custom transport/timeout
+    ransomware.WithBaseURL("https://custom-api.example.com"), // override base URL (testing/mirrors)
+    ransomware.WithUserAgent("my-app/1.0"),
 )
 ```
-## API Methods
 
-### Groups
+Defaults: 30 second timeout, `User-Agent: ransomware-live-go/2.0`.
 
-|Method | Endpoint |Description|
-|-------|----------|-----------|
-|ListGroups() ([]GroupSummary, error) | GET /groups | Returns all tracked ransomware groups with victim counts.|
-|GetGroup(name string) (*GroupDetail, error) | GET /groups/{groupname} | Returns comprehensive intelligence about a specific ransomware group, including description, victims, firstseen/lastseen, locations (Tor/clearweb URLs), TTPs (MITRE ATT&CK), vulnerabilities (CVEs with CVSS scores), tools, negotiation/ransomnote availability.|
+## Authentication and rate limits
+
+* All endpoints require the `X-API-KEY` header; the client sets it
+  automatically on every request.
+* Rate limit: 500,000 requests per month per key. Requests beyond the quota
+  return HTTP 429.
+* Validate a key before heavy usage with `ValidateKey()`.
+
+## Error handling
+
+Non-2xx responses return an `*APIError`. Use `AsAPIError` to unwrap it and the
+`Is*` helpers to react programmatically:
+
+```go
+victims, err := client.GetRecentVictims("")
+if err != nil {
+    if apiErr, ok := ransomware.AsAPIError(err); ok {
+        switch {
+        case apiErr.IsRateLimit():
+            fmt.Println("rate limited (429)")
+        case apiErr.IsUnauthorized():
+            fmt.Println("invalid or missing API key (401/403)")
+        case apiErr.IsNotFound():
+            fmt.Println("resource not found (404)")
+        case apiErr.IsBadRequest():
+            fmt.Println("bad parameters (400)")
+        }
+    }
+    log.Fatal(err)
+}
+```
+
+`APIError` exposes `StatusCode`, `Status`, `Body`, `Method` and `Path`.
+Transport failures and JSON decode errors are returned as regular Go errors.
+
+## Context support
+
+Every method has a `WithContext` variant that accepts a `context.Context`,
+enabling cancellation and deadlines:
+
+```go
+ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+defer cancel()
+
+victims, err := client.GetRecentVictimsWithContext(ctx, "discovered")
+```
+
+## API methods
+
+| Method | Endpoint | Description |
+|--------|----------|-------------|
+| `ListGroups()` | `GET /groups` | All tracked groups with victim counts and alternate names. |
+| `GetGroup(name)` | `GET /groups/{groupname}` | Full group intelligence: description, victims, first/last seen, locations, TTPs, vulnerabilities (CVEs + CVSS), tools, negotiation/ransomnote/YARA/IOC availability and counts. |
+| `GetGroupCompat(name)` | `GET /group/{groupname}` | Same record via the legacy single-slash endpoint. |
+| `GetRecentVictims(order)` | `GET /victims/recent` | The 100 most recent victims; `order` = `discovered` (default) or `attacked`. |
+| `ListVictims(filter)` | `GET /victims/` | Filtered victims; at least one filter required, `year` and `month` must be used together. |
+| `SearchVictims(q, filter)` | `GET /victims/search` | Full-text search over victim names/domains with `group`, `sector`, `country`, `order` filters. |
+| `GetVictim(victimID)` | `GET /victim/{victim_id}` | Enriched single-victim details (id = Base64 of `post_title@group_name`). |
+| `ListIOCGroups(iocType)` | `GET /iocs` | Groups with IOCs and per-type counts (`md5`, `sha256`, `sha1`, `ip`, `domain`, `email`, `url`, `btc`, `xmr`). |
+| `GetGroupIOCs(group, iocType)` | `GET /iocs/{group}` | All IOCs for a group, optionally one type. |
+| `ListNegotiationGroups()` | `GET /negotiations` | Groups with leaked negotiation chats and chat counts. |
+| `ListNegotiationChats(group)` | `GET /negotiations/{group}` | Chat metadata: id, message count, initial/negotiated ransom, paid status. |
+| `GetNegotiationChat(group, chatID)` | `GET /negotiations/{group}/{chat_id}` | Full message thread and ransom metadata. |
+| `ListRansomNoteGroups()` | `GET /ransomnotes` | Groups with ransom notes on file. |
+| `ListRansomNotes(group)` | `GET /ransomnotes/{group}` | Ransom note identifiers for a group. |
+| `GetRansomNote(group, noteName)` | `GET /ransomnotes/{group}/{note_name}` | Full ransom note text (`.txt`/`.html`/`.md`). |
+| `ListYARAGroups()` | `GET /yara` | Groups with YARA rules and rule counts. |
+| `GetYARARules(group)` | `GET /yara/{group}` | YARA rules (filename + content) for a group. |
+| `ListPressEntries(year, month, country)` | `GET /press/all` | All press/cyberattack entries with optional filters, sorted by date desc. |
+| `GetRecentPressEntries(country)` | `GET /press/recent` | The 100 most recent press entries, optional country filter. |
+| `GetCSIRTContacts(country)` | `GET /csirt/{country}` | CSIRT/CERT contacts; accepts alpha-2 (FR) and alpha-3 (FRA). |
+| `GetSECFilings(ticker, cik, year, month, item105, item801)` | `GET /8k` | SEC 8-K cybersecurity filings; item flags always sent explicitly (default both true). |
+| `ListSectors()` | `GET /listsectors` | Unique sector values with victim counts. |
+| `GetStats()` | `GET /stats` | High-level stats: `Stats.Victims/Groups/Press` + `LastUpdate`. |
+| `ValidateKey()` | `GET /validate` | Check whether the configured API key is valid. |
+
+## Data types
 
 ### Victims
 
-|Method | Endpoint | Description|
-|-------|----------|------------|
-|GetRecentVictims(order string) ([]Victim, error) | GET /victims/recent | Returns the 100 most recent active victims, enriched with screenshot, infostealer data, press coverage, and permalink.|
-|ListVictims(filter VictimFilter) ([]Victim, error) | GET /victims/ | Returns victims matching the provided filters (at least one filter is required).|
-|SearchVictims(q string, filter VictimFilter) ([]Victim, error) | GET /victims/search | Full‑text search across victim names and website domains, with optional secondary filters.|
-|GetVictim(victimID string) (*VictimDetail, error) | GET /victim/{victim_id} | Returns enriched details for a single victim. The victim_id is a Base64‑encoded string of post_title@group_name (obtainable from the id field in any victim listing).|
+Victim records populate both the documented `Activity` field and the legacy
+`Sector` alias, as well as `Website`/`Domain` and `Permalink`/`URL` pairs, so
+either API naming works.
 
-### Indicators of Compromise (IoCs)
+### Groups
 
-|Method | Endpoint | Description|
-|-------|----------|------------|
-|ListIOCGroups(iocType string) ([]IOCGroup, error) GET /iocs Returns all ransomware groups that have IOCs, with a breakdown of IOC types and counts. Use ?type= to filter groups that have a specific IOC type (e.g. md5, ip, btc).
-|GetGroupIOCs(group string, iocType string) (*GroupIOCs, error) GET /iocs/{group} Returns all IOCs for a specific ransomware group, organised by type (e.g. md5, ip, domain). Use ?type= to retrieve only one IOC type.
+`GroupDetail` accepts both structured and flat forms for `Locations`, `TTPs`
+and `Vulnerabilities` (objects, or plain URL/technique/CVE strings). The
+documented `has_negotiations`/`negotiation_count`/`has_ransomnote`/
+`ransomnotes_count` fields are canonical; the earlier boolean aliases
+(`negotiationchats`, `ransomnotes`, `yara`, `iocs`) are also populated.
 
-### Negotiation Chats
+### Negotiation chats
 
-|Method | Endpoint | Description|
-|-------|----------|------------|
-|ListNegotiationGroups() ([]NegotiationGroup, error) | GET /negotiations | Lists all ransomware groups that have leaked negotiation chat logs available, with a count of chats per group.|
-|ListNegotiationChats(group string) ([]NegotiationChat, error) | GET /negotiations/{group} | Returns metadata for all available negotiation chats for a given group (chat ID, message count, initial ransom, negotiated ransom, paid status).|
-|GetNegotiationChat(group, chatID string) (*NegotiationChatDetail, error) | GET /negotiations/{group}/{chat_id} | Returns the complete message thread and ransom metadata for a specific negotiation chat.|
-
-### Ransom Notes
-
-|Method | Endpoint | Description|
-|-------|----------|------------|
-|ListRansomNoteGroups() ([]RansomNoteGroup, error) | GET /ransomnotes | Lists all ransomware groups that have at least one ransom note on file, with a count of notes per group.|
-|ListRansomNotes(group string) ([]string, error) | GET /ransomnotes/{group} | Returns the list of ransom note identifiers (filenames without extension) for a group.|
-|GetRansomNote(group, noteName string) (*RansomNote, error) | GET /ransomnotes/{group}/{note_name} | Returns the full text content of a specific ransom note (supported formats: .txt, .html, .md).|
-
-### YARA Rules
-
-|Method | Endpoint | Description|
-|-------|----------|------------|
-|ListYARAGroups() ([]YARAGroup, error) | GET /yara | Lists all ransomware groups that have associated YARA detection rules, with a count of rule files per group.|
-|GetYARARules(group string) ([]YARARule, error) | GET /yara/{group} | Returns all YARA rules for a specific ransomware group (filename + full rule content).|
-
-### Press / Cyberattack Entries
-
-|Method | Endpoint | Description|
-|-------|----------|------------|
-|ListPressEntries(year, month, country string) ([]PressEntry, error) | GET /press/all | Returns all tracked cyberattack press entries, enriched with HudsonRock infostealer data and a ransomware link if the victim domain matches a known victim. Results sorted by date descending.|
-|GetRecentPressEntries(country string) ([]PressEntry, error) | GET /press/recent | Returns the 100 most recent cyberattack press entries, enriched with infostealer data and ransomware link. Optional country filter.|
-
-### CSIRT Contacts
-
-|Method | Endpoint | Description|
-|-------|----------|------------|
-|GetCSIRTContacts(country string) ([]CSIRTContact, error) | GET /csirt/{country} | Returns all CSIRT/CERT contacts for the given country. Accepts both ISO 3166-1 alpha-2 (e.g. FR) and alpha-3 (e.g. FRA) codes.|
-
-### SEC Form 8-K Filings
-
-|Method | Endpoint | Description|
-|-------|----------|------------|
-|GetSECFilings(ticker, cik, year, month string, item105, item801 bool) ([]SECFiling, error) | GET /8k | Returns SEC Form 8‑K filings related to cybersecurity incidents (Item 1.05 - Material Cybersecurity Incidents, mandatory since Dec 2023; Item 8.01 – Other Events).|
-
-### Sectors
-
-|Method | Endpoint | Description|
-|-------|----------|------------|
-|ListSectors() ([]Sector, error) | GET /listsectors | Returns all unique sector/industry values from the victim database, sorted alphabetically, with a count of victims per sector.|
+`NegotiationChat` and `NegotiationChatDetail` accept both the documented
+field names (`message_count`, `initialransom`, `negotiatedransom`) and the
+legacy names (`messages`, `initial_ransom`, `negotiated_ransom`). Message
+timestamps are kept as strings because their format varies between groups.
 
 ### Statistics
 
-|Method | Endpoint | Description|
-|-------|----------|------------|
-|GetStats() (*Stats, error) | GET /stats | Returns high‑level statistics: total victim count, number of tracked ransomware groups, number of press/cyberattack entries, and the timestamp of the most recently discovered victim.|
+`Stats` accepts both the documented nested shape
+(`stats.victims/groups/press`, `last_update`) and the earlier flat shape
+(`total_victims/...`, `last_discovered`).
 
-### Validation
+## Filtering
 
-|Method | Endpoint | Description|
-|-------|----------|------------|
-|ValidateKey() (*ValidationResponse, error) | GET /validate | Checks if the provided X-API-KEY header is valid and returns the associated client identifier.|
+### `VictimFilter`
 
-### Data Types
+| Field | Description |
+|-------|-------------|
+| `Group` | Group name, case-insensitive exact match. |
+| `Sector` | Sector/industry, case-insensitive exact match (see `ListSectors`). |
+| `Country` | ISO 3166-1 alpha-2 code, uppercase (e.g. `US`). |
+| `Year` | 4-digit year. Must be combined with `Month` — `year` alone is rejected. |
+| `Month` | 2-digit month (e.g. `06`). Requires `Year`. |
+| `Date` | Date field to filter on: `discovered` (default) or `attacked`. |
+| `Order` | Sort order: `discovered` (default) or `attacked`. |
 
-Common Date and Country Fields
+`ListVictims` requires at least one filter. `SearchVictims` requires `q` and
+only supports `group`, `sector`, `country` and `order` as secondary filters
+(per the official documentation).
 
-* Date fields - attackdate is the estimated attack/publication date; discovered is when ransomware.live first observed the listing.
-* Country codes - Use ISO 3166-1 alpha-2 (2-letter, e.g. US, FR) unless stated otherwise.
+## Examples
 
-### Filtering
-
-#### VictimFilter
-
-Used with ListVictims and SearchVictims:
-
-|Field | Type | Description|
-|------|------|------------|
-|Group | string | Ransomware group name, case‑insensitive exact match.
-|Sector | string | Victim sector/industry, case‑insensitive exact match (use ListSectors to get valid values).
-|Country | string | ISO 3166‑1 alpha‑2 country code, uppercase (e.g. US, FR).
-|Year | string | 4‑digit year (e.g. 2024).
-|Month | string | 2‑digit month, requires Year (e.g. 03).
-|Date | string | Which date field to filter on: "discovered" (default) or "attacked".
-|Order | string | Sort order for recent victims: "discovered" (default) or "attacked".
-
-**Note**: ListVictims requires at least one filter to be set.
-
-### Error Handling
-
-The client returns standard Go errors. Common errors:
-
-* HTTP 429 - Rate limit exceeded (500,000 requests/month).
-* HTTP 401/403 - Invalid or missing API key.
-* HTTP 404 - Resource not found (e.g., invalid group name, victim ID, or chat ID).
-* HTTP 400 - Invalid parameters (e.g., missing required fields).
-
-### Examples
-
-1. List All Groups
-
-```go
-groups, err := client.ListGroups()
-if err != nil {
-    log.Fatal(err)
-}
-for _, g := range groups {
-    fmt.Printf("%s: %d victims\n", g.Group, g.Victims)
-}
-```
-
-2. Get Detailed Group Intelligence
+1. Get detailed group intelligence
 
 ```go
 group, err := client.GetGroup("lockbit3")
@@ -209,26 +201,14 @@ if err != nil {
 }
 fmt.Printf("Description: %s\n", group.Description)
 for _, ttp := range group.TTPs {
-    fmt.Printf("TTP: %s\n", ttp)
+    fmt.Printf("TTP: %s\n", ttp.TacticName)
 }
 for _, vuln := range group.Vulnerabilities {
     fmt.Printf("CVE: %s (CVSS: %.1f)\n", vuln.ID, vuln.CVSS)
 }
 ```
 
-3. Get Recent Victims
-
-```go
-victims, err := client.GetRecentVictims("discovered")
-if err != nil {
-    log.Fatal(err)
-}
-for _, v := range victims {
-    fmt.Printf("%s (%s) - %s\n", v.Victim, v.Group, v.Country)
-}
-```
-
-4. Filter Victims by Group and Country
+2. Filter victims by group and country
 
 ```go
 filter := ransomware.VictimFilter{
@@ -241,28 +221,19 @@ if err != nil {
 }
 ```
 
-5. Search Victims by Keyword
-
-```go
-victims, err := client.SearchVictims("hospital", ransomware.VictimFilter{Country: "FR"})
-if err != nil {
-    log.Fatal(err)
-}
-```
-
-6. Get IOCs for a Group
+3. Get IOCs for a group
 
 ```go
 iocs, err := client.GetGroupIOCs("lockbit3", "ip")
 if err != nil {
     log.Fatal(err)
 }
-for _, ip := range iocs.IPs {
+for _, ip := range iocs.IP {
     fmt.Println(ip)
 }
 ```
 
-7. Get Negotiation Chat
+4. Get a negotiation chat
 
 ```go
 chats, err := client.ListNegotiationChats("lockbit3")
@@ -278,35 +249,7 @@ if len(chats) > 0 {
 }
 ```
 
-8. Get Ransom Note Content
-
-```go
-notes, err := client.ListRansomNotes("lockbit3")
-if err != nil {
-    log.Fatal(err)
-}
-if len(notes) > 0 {
-    note, err := client.GetRansomNote("lockbit3", notes[0])
-    if err != nil {
-        log.Fatal(err)
-    }
-    fmt.Printf("Format: %s\nContent: %s\n", note.Extension, note.Content)
-}
-```
-
-9. Get YARA Rules
-
-```go
-rules, err := client.GetYARARules("lockbit3")
-if err != nil {
-    log.Fatal(err)
-}
-for _, rule := range rules {
-    fmt.Printf("Rule: %s\n%s\n", rule.Filename, rule.Content)
-}
-```
-
-10. Get SEC 8-K Filings
+5. Get SEC 8-K filings
 
 ```go
 filings, err := client.GetSECFilings("MSFT", "", "2025", "", true, true)
@@ -318,23 +261,26 @@ for _, f := range filings {
 }
 ```
 
-11. Validate API Key
+## Live tests
 
-```go
-resp, err := client.ValidateKey()
-if err != nil {
-    log.Fatal(err)
-}
-fmt.Printf("Valid key for client: %s\n", resp.ClientID)
+The repository ships with an environment-gated live test that exercises the
+real API with your key:
+
+```bash
+RANSOMWARE_LIVE_API_KEY=your-key go test -run TestLivePRO -count=1 -v .
 ```
 
----
+## Important notes
 
-## Important Notes
-
-* Authentication - All endpoints require an X-API-KEY header. Obtain a free key from ransomware.live/my.
-* Rate Limits - 500,000 requests per month per key.
-* Date Fields - attackdate is the estimated attack/publication date; discovered is when ransomware.live first observed the listing.
-* Country Codes - Use ISO 3166-1 alpha-2 (2-letter, e.g. US, FR) unless stated otherwise.
-* Pagination - The API does not expose explicit pagination for all endpoints. The /victims/recent endpoint always returns the 100 most recent entries. For historical data, use the filtered /victims/ endpoint with date filters.
-* IOC Endpoints - IOC endpoints are not rate‑limited, but fair use applies.
+* **Authentication** — all endpoints require an `X-API-KEY` header. Obtain a
+  free key from [ransomware.live/my](https://www.ransomware.live/my).
+* **Rate limits** — 500,000 requests per month per key.
+* **Date fields** — `attackdate` is the estimated attack/publication date;
+  `discovered` is when ransomware.live first observed the listing.
+* **Country codes** — ISO 3166-1 alpha-2 (2-letter, e.g. `US`, `FR`) unless
+  stated otherwise.
+* **Pagination** — the API does not expose explicit pagination for all
+  endpoints. `/victims/recent` always returns the 100 most recent entries;
+  use date-filtered `/victims/` queries for historical data.
+* **IOC endpoints** — not rate limited, but fair use applies.
+* **Path parameters** — all path values are URL-escaped automatically.
