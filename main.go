@@ -123,6 +123,8 @@ type Victim struct {
 	URL         string `json:"url"`
 }
 
+type VictimList []Victim
+
 type VictimFilter struct {
 	Group   string
 	Sector  string
@@ -299,6 +301,46 @@ func (e *APIError) Error() string {
 	}
 	return fmt.Sprintf("ransomware.live API %s %s: HTTP %d (%s): %s",
 		e.Method, e.Path, e.StatusCode, e.Status, body)
+}
+
+func (v *VictimList) UnmarshalJSON(data []byte) error {
+	var items []Victim
+	if err := json.Unmarshal(data, &items); err == nil {
+		*v = items
+		return nil
+	}
+	var env struct {
+		Data    []Victim `json:"data"`
+		Victims []Victim `json:"victims"`
+		Results []Victim `json:"results"`
+		Items   []Victim `json:"items"`
+		Entries []Victim `json:"entries"`
+		Message string   `json:"message"`
+	}
+	if err := json.Unmarshal(data, &env); err != nil {
+		return err
+	}
+	switch {
+	case env.Data != nil:
+		*v = env.Data
+	case env.Victims != nil:
+		*v = env.Victims
+	case env.Results != nil:
+		*v = env.Results
+	case env.Items != nil:
+		*v = env.Items
+	case env.Entries != nil:
+		*v = env.Entries
+	case env.Message != "":
+		return fmt.Errorf("ransomware.live: %s", env.Message)
+	default:
+		body := string(data)
+		if len(body) > maxErrorBodyLen {
+			body = body[:maxErrorBodyLen] + "..."
+		}
+		return fmt.Errorf("ransomware.live: unexpected victim list response: %s", body)
+	}
+	return nil
 }
 
 func (e *APIError) IsRateLimit() bool { return e.StatusCode == http.StatusTooManyRequests }
@@ -529,9 +571,9 @@ func (c *Client) GetRecentVictimsWithContext(ctx context.Context, order string) 
 	if order != "" {
 		params.Set("order", order)
 	}
-	var out []Victim
+	var out VictimList
 	err := c.get(ctx, "victims/recent", params, &out)
-	return out, err
+	return []Victim(out), err
 }
 
 func (c *Client) ListVictims(filter VictimFilter) ([]Victim, error) {
@@ -564,9 +606,9 @@ func (c *Client) ListVictimsWithContext(ctx context.Context, filter VictimFilter
 	if filter.Order != "" {
 		params.Set("order", filter.Order)
 	}
-	var out []Victim
+	var out VictimList
 	err := c.get(ctx, "victims/", params, &out)
-	return out, err
+	return []Victim(out), err
 }
 
 func validateVictimFilter(filter VictimFilter) error {
@@ -605,9 +647,9 @@ func (c *Client) SearchVictimsWithContext(ctx context.Context, q string, filter 
 	if filter.Order != "" {
 		params.Set("order", filter.Order)
 	}
-	var out []Victim
+	var out VictimList
 	err := c.get(ctx, "victims/search", params, &out)
-	return out, err
+	return []Victim(out), err
 }
 
 // UnmarshalJSON normalises the alternate field names used across API

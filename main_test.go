@@ -2,6 +2,7 @@ package ransomware
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"io"
 	"net/http"
@@ -332,6 +333,102 @@ func TestListVictims(t *testing.T) {
 			t.Fatal("bad list victims")
 		}
 	})
+}
+
+func TestVictimListUnmarshal(t *testing.T) {
+	t.Run("plain array", func(t *testing.T) {
+		var vl VictimList
+		if err := json.Unmarshal([]byte(`[{"victim":"v1","group":"g1"}]`), &vl); err != nil {
+			t.Fatal(err)
+		}
+		if len(vl) != 1 || vl[0].Victim != "v1" {
+			t.Fatalf("bad plain array: %+v", vl)
+		}
+	})
+
+	for _, key := range []string{"data", "victims", "results", "items", "entries"} {
+		t.Run("envelope "+key, func(t *testing.T) {
+			var vl VictimList
+			body := `{"` + key + `":[{"victim":"v1","group":"g1"}],"count":1}`
+			if err := json.Unmarshal([]byte(body), &vl); err != nil {
+				t.Fatal(err)
+			}
+			if len(vl) != 1 || vl[0].Victim != "v1" {
+				t.Fatalf("bad %s envelope: %+v", key, vl)
+			}
+		})
+	}
+
+	t.Run("empty envelope", func(t *testing.T) {
+		var vl VictimList
+		if err := json.Unmarshal([]byte(`{"victims":[]}`), &vl); err != nil {
+			t.Fatal(err)
+		}
+		if len(vl) != 0 {
+			t.Fatalf("expected empty list, got %+v", vl)
+		}
+	})
+
+	t.Run("message", func(t *testing.T) {
+		var vl VictimList
+		err := json.Unmarshal([]byte(`{"message":"no victims found"}`), &vl)
+		if err == nil || !strings.Contains(err.Error(), "no victims found") {
+			t.Fatalf("expected message error, got %v", err)
+		}
+	})
+
+	t.Run("unexpected object", func(t *testing.T) {
+		var vl VictimList
+		if err := json.Unmarshal([]byte(`{"foo":"bar"}`), &vl); err == nil {
+			t.Fatal("expected error for unexpected object")
+		}
+	})
+}
+
+func TestListVictimsObjectEnvelope(t *testing.T) {
+	c, ts := newTestClient(t, func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/victims/" {
+			t.Fatalf("bad path %s", r.URL.Path)
+		}
+		q := r.URL.Query()
+		if q.Get("year") != "2026" || q.Get("month") != "05" {
+			t.Fatalf("bad query: %v", q)
+		}
+		_, _ = io.WriteString(w, `{"data":[{"victim":"v1","group":"g1","activity":"Healthcare"}],"count":1}`)
+	})
+	defer ts.Close()
+
+	out, err := c.ListVictims(VictimFilter{Year: "2026", Month: "05"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(out) != 1 || out[0].Victim != "v1" || out[0].Activity != "Healthcare" {
+		t.Fatalf("bad envelope decode: %+v", out)
+	}
+}
+
+func TestGetRecentVictimsObjectEnvelope(t *testing.T) {
+	c, ts := newTestClient(t, func(w http.ResponseWriter, r *http.Request) {
+		_, _ = io.WriteString(w, `{"victims":[{"victim":"v1","group":"g1"}],"count":1}`)
+	})
+	defer ts.Close()
+
+	out, err := c.GetRecentVictims("")
+	if err != nil || len(out) != 1 || out[0].Victim != "v1" {
+		t.Fatalf("bad recent envelope decode: %+v, %v", out, err)
+	}
+}
+
+func TestSearchVictimsObjectEnvelope(t *testing.T) {
+	c, ts := newTestClient(t, func(w http.ResponseWriter, r *http.Request) {
+		_, _ = io.WriteString(w, `{"results":[{"victim":"v1","group":"g1"}]}`)
+	})
+	defer ts.Close()
+
+	out, err := c.SearchVictims("hospital", VictimFilter{})
+	if err != nil || len(out) != 1 || out[0].Victim != "v1" {
+		t.Fatalf("bad search envelope decode: %+v, %v", out, err)
+	}
 }
 
 func TestSearchVictims(t *testing.T) {
