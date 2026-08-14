@@ -287,6 +287,13 @@ func TestGetRecentVictims(t *testing.T) {
 	}
 }
 
+func TestGetRecentVictimsInvalidOrder(t *testing.T) {
+	c := NewClient("k")
+	if _, err := c.GetRecentVictims("bogus"); err == nil {
+		t.Fatal("expected invalid order error")
+	}
+}
+
 func TestListVictims(t *testing.T) {
 	t.Run("missing filter", func(t *testing.T) {
 		c := NewClient("k")
@@ -309,6 +316,30 @@ func TestListVictims(t *testing.T) {
 		_, err := c.ListVictims(VictimFilter{Month: "06"})
 		if err == nil {
 			t.Fatal("expected month/year error")
+		}
+	})
+
+	t.Run("date alone rejected", func(t *testing.T) {
+		c := NewClient("k")
+		_, err := c.ListVictims(VictimFilter{Date: "attacked"})
+		if err == nil {
+			t.Fatal("expected error: date is not a filter")
+		}
+	})
+
+	t.Run("invalid date", func(t *testing.T) {
+		c := NewClient("k")
+		_, err := c.ListVictims(VictimFilter{Group: "g1", Date: "bogus"})
+		if err == nil {
+			t.Fatal("expected date enum error")
+		}
+	})
+
+	t.Run("order unsupported", func(t *testing.T) {
+		c := NewClient("k")
+		_, err := c.ListVictims(VictimFilter{Group: "g1", Order: "attacked"})
+		if err == nil {
+			t.Fatal("expected error: order not supported on /victims/")
 		}
 	})
 
@@ -440,6 +471,14 @@ func TestSearchVictims(t *testing.T) {
 		}
 	})
 
+	t.Run("invalid order", func(t *testing.T) {
+		c := NewClient("k")
+		_, err := c.SearchVictims("hospital", VictimFilter{Order: "bogus"})
+		if err == nil {
+			t.Fatal("expected invalid order error")
+		}
+	})
+
 	t.Run("query and filters", func(t *testing.T) {
 		c, ts := newTestClient(t, func(w http.ResponseWriter, r *http.Request) {
 			if r.URL.Path != "/victims/search" {
@@ -483,6 +522,129 @@ func TestGetVictim(t *testing.T) {
 	}
 	if len(out.Extra.PressCoverage) != 1 || out.Extra.PressCoverage[0].Title != "t" {
 		t.Fatal("bad extra press coverage")
+	}
+}
+
+func TestVictimDetailInfostealerObject(t *testing.T) {
+	var vd VictimDetail
+	body := `{"victim":"v1","group":"g1","description":"d","infostealer":{
+		"employees":2,"employees_url":3,"infostealer_stats":{},
+		"last_employee_compromised":null,"last_user_compromised":null,
+		"thirdparties":3,"update":"2026-08-01T00:00:00","users":198,"users_url":12
+	}}`
+	if err := json.Unmarshal([]byte(body), &vd); err != nil {
+		t.Fatal(err)
+	}
+	if vd.Infostealer == nil || vd.Infostealer.Users != 198 ||
+		vd.Infostealer.Update != "2026-08-01T00:00:00" {
+		t.Fatalf("bad infostealer: %+v", vd.Infostealer)
+	}
+}
+
+func TestGetVictimInfostealerObject(t *testing.T) {
+	c, ts := newTestClient(t, func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/victim/QWNtZQ==" {
+			t.Fatalf("bad path %s", r.URL.Path)
+		}
+		_, _ = io.WriteString(w, `{"victim":"v1","group":"g1","description":"d",
+			"infostealer":{"employees":2,"users":198,"update":"2026-08-01T00:00:00"}}`)
+	})
+	defer ts.Close()
+
+	out, err := c.GetVictim("QWNtZQ==")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if out.Infostealer == nil || out.Infostealer.Users != 198 {
+		t.Fatalf("bad infostealer: %+v", out.Infostealer)
+	}
+}
+
+func TestVictimInfostealerOptional(t *testing.T) {
+	t.Run("absent", func(t *testing.T) {
+		var vl VictimList
+		if err := json.Unmarshal([]byte(`[{"victim":"v1","group":"g1"}]`), &vl); err != nil {
+			t.Fatal(err)
+		}
+		if vl[0].Infostealer != nil {
+			t.Fatalf("expected nil infostealer when absent, got %+v", vl[0].Infostealer)
+		}
+	})
+
+	t.Run("null", func(t *testing.T) {
+		var vl VictimList
+		if err := json.Unmarshal([]byte(`[{"victim":"v1","group":"g1","infostealer":null}]`), &vl); err != nil {
+			t.Fatal(err)
+		}
+		if vl[0].Infostealer != nil {
+			t.Fatalf("expected nil infostealer for null, got %+v", vl[0].Infostealer)
+		}
+	})
+
+	t.Run("empty string", func(t *testing.T) {
+		var vl VictimList
+		if err := json.Unmarshal([]byte(`[{"victim":"v1","group":"g1","infostealer":""}]`), &vl); err != nil {
+			t.Fatal(err)
+		}
+		if vl[0].Infostealer == nil {
+			t.Fatal("expected zero infostealer struct for empty string")
+		}
+	})
+
+	t.Run("hudsonrock object", func(t *testing.T) {
+		body := `[{"victim":"v1","group":"g1","infostealer":{
+			"employees":2,"employees_url":3,"infostealer_stats":{},
+			"last_employee_compromised":null,"last_user_compromised":null,
+			"thirdparties":3,"update":"2026-08-01T00:00:00","users":198,"users_url":12
+		}}]`
+		var vl VictimList
+		if err := json.Unmarshal([]byte(body), &vl); err != nil {
+			t.Fatal(err)
+		}
+		info := vl[0].Infostealer
+		if info == nil {
+			t.Fatal("expected infostealer object to be decoded")
+		}
+		if info.Employees != 2 || info.EmployeesURL != 3 || info.ThirdParties != 3 ||
+			info.Users != 198 || info.UsersURL != 12 || info.Update != "2026-08-01T00:00:00" {
+			t.Fatalf("bad infostealer fields: %+v", info)
+		}
+		if info.LastEmployeeCompromised != nil || info.LastUserCompromised != nil {
+			t.Fatalf("expected null date fields to stay nil: %+v", info)
+		}
+	})
+}
+
+func TestListVictimsInfostealerObjectEnvelope(t *testing.T) {
+	// Regression test for the reported failure decoding
+	// GET /victims/?group=thegentlemen: json: cannot unmarshal object into
+	// Go struct field .victims.plain.infostealer of type string
+	c, ts := newTestClient(t, func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/victims/" {
+			t.Fatalf("bad path %s", r.URL.Path)
+		}
+		_, _ = io.WriteString(w, `{"victims":[{"id":"a","victim":"v1","group":"thegentlemen",
+			"country":"US","activity":"Retail","sector":"Retail","attackdate":"2026-08-01",
+			"discovered":"2026-08-01","website":"acme.com","domain":"acme.com","screenshot":"",
+			"infostealer":{"employees":0,"employees_url":0,"infostealer_stats":{},
+			"last_employee_compromised":null,"last_user_compromised":null,"thirdparties":0,
+			"update":"2026-08-01T00:00:00","users":0,"users_url":0},
+			"press":null,"permalink":"https://x/id/a","url":"https://x/id/a"}]}`)
+	})
+	defer ts.Close()
+
+	out, err := c.ListVictims(VictimFilter{Group: "thegentlemen"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(out) != 1 || out[0].Victim != "v1" || out[0].Group != "thegentlemen" {
+		t.Fatalf("bad decode: %+v", out)
+	}
+	if out[0].Infostealer == nil {
+		t.Fatal("expected infostealer object to be decoded")
+	}
+	if out[0].Infostealer.Users != 0 || out[0].Infostealer.Update != "2026-08-01T00:00:00" {
+		t.Fatalf("bad infostealer: %+v", out[0].Infostealer)
 	}
 }
 
@@ -682,6 +844,13 @@ func TestListPressEntries(t *testing.T) {
 	}
 }
 
+func TestListPressEntriesMonthRequiresYear(t *testing.T) {
+	c := NewClient("k")
+	if _, err := c.ListPressEntries("", "06", ""); err == nil {
+		t.Fatal("expected month requires year error")
+	}
+}
+
 func TestGetRecentPressEntries(t *testing.T) {
 	c, ts := newTestClient(t, func(w http.ResponseWriter, r *http.Request) {
 		if r.URL.Query().Get("country") != "US" {
@@ -694,6 +863,32 @@ func TestGetRecentPressEntries(t *testing.T) {
 	out, err := c.GetRecentPressEntries("US")
 	if err != nil || len(out) != 1 || out[0].ID != "1" {
 		t.Fatal("bad recent press entries")
+	}
+}
+
+func TestPressEntryInfostealerObject(t *testing.T) {
+	var p PressEntry
+	body := `{"id":"1","title":"t","infostealer":{"employees":2,"users":198}}`
+	if err := json.Unmarshal([]byte(body), &p); err != nil {
+		t.Fatal(err)
+	}
+	if p.Infostealer == nil || p.Infostealer.Users != 198 {
+		t.Fatalf("bad infostealer: %+v", p.Infostealer)
+	}
+}
+
+func TestListPressEntriesInfostealerObject(t *testing.T) {
+	c, ts := newTestClient(t, func(w http.ResponseWriter, r *http.Request) {
+		_, _ = io.WriteString(w, `[{"id":"1","title":"t","infostealer":{"employees":2,"users":198}}]`)
+	})
+	defer ts.Close()
+
+	out, err := c.ListPressEntries("", "", "")
+	if err != nil || len(out) != 1 || out[0].ID != "1" {
+		t.Fatal("bad press entries")
+	}
+	if out[0].Infostealer == nil || out[0].Infostealer.Users != 198 {
+		t.Fatalf("bad infostealer: %+v", out[0].Infostealer)
 	}
 }
 
@@ -712,6 +907,34 @@ func TestGetCSIRTContacts(t *testing.T) {
 	}
 }
 
+func TestRequiredPathParams(t *testing.T) {
+	c := NewClient("k")
+	tests := []struct {
+		name string
+		call func() error
+	}{
+		{"GetGroup", func() error { _, err := c.GetGroup(""); return err }},
+		{"GetGroupCompat", func() error { _, err := c.GetGroupCompat(""); return err }},
+		{"GetVictim", func() error { _, err := c.GetVictim(""); return err }},
+		{"GetGroupIOCs", func() error { _, err := c.GetGroupIOCs("", ""); return err }},
+		{"ListNegotiationChats", func() error { _, err := c.ListNegotiationChats(""); return err }},
+		{"GetNegotiationChatGroup", func() error { _, err := c.GetNegotiationChat("", "1"); return err }},
+		{"GetNegotiationChatID", func() error { _, err := c.GetNegotiationChat("g", ""); return err }},
+		{"ListRansomNotes", func() error { _, err := c.ListRansomNotes(""); return err }},
+		{"GetRansomNoteGroup", func() error { _, err := c.GetRansomNote("", "n"); return err }},
+		{"GetRansomNoteName", func() error { _, err := c.GetRansomNote("g", ""); return err }},
+		{"GetYARARules", func() error { _, err := c.GetYARARules(""); return err }},
+		{"GetCSIRTContacts", func() error { _, err := c.GetCSIRTContacts(""); return err }},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			if err := tt.call(); err == nil {
+				t.Fatal("expected required path param error")
+			}
+		})
+	}
+}
+
 func TestGetSECFilings(t *testing.T) {
 	c, ts := newTestClient(t, func(w http.ResponseWriter, r *http.Request) {
 		q := r.URL.Query()
@@ -725,6 +948,13 @@ func TestGetSECFilings(t *testing.T) {
 	out, err := c.GetSECFilings("AAPL", "", "", "", false, true)
 	if err != nil || len(out) != 1 || out[0].Ticker != "AAPL" {
 		t.Fatal("bad sec filings")
+	}
+}
+
+func TestGetSECFilingsMonthRequiresYear(t *testing.T) {
+	c := NewClient("k")
+	if _, err := c.GetSECFilings("", "", "", "06", true, true); err == nil {
+		t.Fatal("expected month requires year error")
 	}
 }
 

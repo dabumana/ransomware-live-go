@@ -105,22 +105,34 @@ type GroupDetail struct {
 	IOCs             bool              `json:"iocs,omitempty"`             // legacy alias
 }
 
+type InfostealerData struct {
+	Employees               int            `json:"employees"`
+	EmployeesURL            int            `json:"employees_url"`
+	InfostealerStats        map[string]any `json:"infostealer_stats"`
+	LastEmployeeCompromised *string        `json:"last_employee_compromised"`
+	LastUserCompromised     *string        `json:"last_user_compromised"`
+	ThirdParties            int            `json:"thirdparties"`
+	Update                  string         `json:"update"`
+	Users                   int            `json:"users"`
+	UsersURL                int            `json:"users_url"`
+}
+
 type Victim struct {
-	ID          string `json:"id"`
-	Victim      string `json:"victim"`
-	Group       string `json:"group"`
-	Country     string `json:"country"`
-	Activity    string `json:"activity"`
-	Sector      string `json:"sector"`
-	AttackDate  string `json:"attackdate"`
-	Discovered  string `json:"discovered"`
-	Website     string `json:"website"`
-	Domain      string `json:"domain"`
-	Screenshot  string `json:"screenshot"`
-	Infostealer string `json:"infostealer"`
-	Press       string `json:"press"`
-	Permalink   string `json:"permalink"`
-	URL         string `json:"url"`
+	ID          string           `json:"id"`
+	Victim      string           `json:"victim"`
+	Group       string           `json:"group"`
+	Country     string           `json:"country"`
+	Activity    string           `json:"activity"`
+	Sector      string           `json:"sector"`
+	AttackDate  string           `json:"attackdate"`
+	Discovered  string           `json:"discovered"`
+	Website     string           `json:"website"`
+	Domain      string           `json:"domain"`
+	Screenshot  string           `json:"screenshot"`
+	Infostealer *InfostealerData `json:"infostealer,omitempty"`
+	Press       string           `json:"press"`
+	Permalink   string           `json:"permalink"`
+	URL         string           `json:"url"`
 }
 
 type VictimList []Victim
@@ -136,22 +148,22 @@ type VictimFilter struct {
 }
 
 type VictimDetail struct {
-	ID          string `json:"id"`
-	Victim      string `json:"victim"`
-	Group       string `json:"group"`
-	Country     string `json:"country"`
-	Activity    string `json:"activity"`
-	Sector      string `json:"sector"`
-	AttackDate  string `json:"attackdate"`
-	Discovered  string `json:"discovered"`
-	Website     string `json:"website"`
-	Domain      string `json:"domain"`
-	Screenshot  string `json:"screenshot"`
-	Infostealer string `json:"infostealer"`
-	Press       string `json:"press"`
-	Permalink   string `json:"permalink"`
-	URL         string `json:"url"`
-	Description string `json:"description"`
+	ID          string           `json:"id"`
+	Victim      string           `json:"victim"`
+	Group       string           `json:"group"`
+	Country     string           `json:"country"`
+	Activity    string           `json:"activity"`
+	Sector      string           `json:"sector"`
+	AttackDate  string           `json:"attackdate"`
+	Discovered  string           `json:"discovered"`
+	Website     string           `json:"website"`
+	Domain      string           `json:"domain"`
+	Screenshot  string           `json:"screenshot"`
+	Infostealer *InfostealerData `json:"infostealer,omitempty"`
+	Press       string           `json:"press"`
+	Permalink   string           `json:"permalink"`
+	URL         string           `json:"url"`
+	Description string           `json:"description"`
 	Extra       struct {
 		PressCoverage []struct {
 			Title  string `json:"title"`
@@ -239,13 +251,13 @@ type YARARule struct {
 }
 
 type PressEntry struct {
-	ID          string `json:"id"`
-	Title       string `json:"title"`
-	URL         string `json:"url"`
-	Source      string `json:"source"`
-	Date        string `json:"date"`
-	Country     string `json:"country"`
-	Infostealer string `json:"infostealer"`
+	ID          string           `json:"id"`
+	Title       string           `json:"title"`
+	URL         string           `json:"url"`
+	Source      string           `json:"source"`
+	Date        string           `json:"date"`
+	Country     string           `json:"country"`
+	Infostealer *InfostealerData `json:"infostealer,omitempty"`
 	Ransomware  *struct {
 		Victim  string `json:"victim"`
 		Group   string `json:"group"`
@@ -301,6 +313,23 @@ func (e *APIError) Error() string {
 	}
 	return fmt.Sprintf("ransomware.live API %s %s: HTTP %d (%s): %s",
 		e.Method, e.Path, e.StatusCode, e.Status, body)
+}
+
+func (i *InfostealerData) UnmarshalJSON(data []byte) error {
+	if len(data) == 0 || string(data) == "null" {
+		return nil
+	}
+	var empty string
+	if err := json.Unmarshal(data, &empty); err == nil {
+		return nil // "empty if none" sentinel
+	}
+	type plain InfostealerData
+	var raw plain
+	if err := json.Unmarshal(data, &raw); err != nil {
+		return err
+	}
+	*i = InfostealerData(raw)
+	return nil
 }
 
 func (v *VictimList) UnmarshalJSON(data []byte) error {
@@ -511,6 +540,9 @@ func (c *Client) GetGroup(name string) (*GroupDetail, error) {
 }
 
 func (c *Client) GetGroupWithContext(ctx context.Context, name string) (*GroupDetail, error) {
+	if err := requiredPathParam("group name", name); err != nil {
+		return nil, err
+	}
 	var out GroupDetail
 	err := c.get(ctx, escapePath("groups", name), nil, &out)
 	return &out, err
@@ -521,6 +553,9 @@ func (c *Client) GetGroupCompat(name string) (*GroupDetail, error) {
 }
 
 func (c *Client) GetGroupCompatWithContext(ctx context.Context, name string) (*GroupDetail, error) {
+	if err := requiredPathParam("group name", name); err != nil {
+		return nil, err
+	}
 	var out GroupDetail
 	err := c.get(ctx, escapePath("group", name), nil, &out)
 	return &out, err
@@ -567,6 +602,9 @@ func (c *Client) GetRecentVictims(order string) ([]Victim, error) {
 }
 
 func (c *Client) GetRecentVictimsWithContext(ctx context.Context, order string) ([]Victim, error) {
+	if err := validateOrder(order); err != nil {
+		return nil, err
+	}
 	params := url.Values{}
 	if order != "" {
 		params.Set("order", order)
@@ -603,9 +641,6 @@ func (c *Client) ListVictimsWithContext(ctx context.Context, filter VictimFilter
 	if filter.Date != "" {
 		params.Set("date", filter.Date)
 	}
-	if filter.Order != "" {
-		params.Set("order", filter.Order)
-	}
 	var out VictimList
 	err := c.get(ctx, "victims/", params, &out)
 	return []Victim(out), err
@@ -613,7 +648,7 @@ func (c *Client) ListVictimsWithContext(ctx context.Context, filter VictimFilter
 
 func validateVictimFilter(filter VictimFilter) error {
 	if filter.Group == "" && filter.Sector == "" && filter.Country == "" &&
-		filter.Year == "" && filter.Month == "" && filter.Date == "" && filter.Order == "" {
+		filter.Year == "" && filter.Month == "" {
 		return errors.New("ransomware: at least one victim filter is required")
 	}
 	if filter.Year != "" && filter.Month == "" {
@@ -621,6 +656,26 @@ func validateVictimFilter(filter VictimFilter) error {
 	}
 	if filter.Month != "" && filter.Year == "" {
 		return errors.New("ransomware: the month filter requires year")
+	}
+	if filter.Date != "" && filter.Date != "discovered" && filter.Date != "attacked" {
+		return fmt.Errorf("ransomware: date must be \"discovered\" or \"attacked\", got %q", filter.Date)
+	}
+	if filter.Order != "" {
+		return errors.New("ransomware: order is not a supported filter for the /victims/ endpoint; use the date filter")
+	}
+	return nil
+}
+
+func validateOrder(order string) error {
+	if order != "" && order != "discovered" && order != "attacked" {
+		return fmt.Errorf("ransomware: order must be \"discovered\" or \"attacked\", got %q", order)
+	}
+	return nil
+}
+
+func requiredPathParam(name, value string) error {
+	if value == "" {
+		return fmt.Errorf("ransomware: %s is required", name)
 	}
 	return nil
 }
@@ -632,6 +687,9 @@ func (c *Client) SearchVictims(q string, filter VictimFilter) ([]Victim, error) 
 func (c *Client) SearchVictimsWithContext(ctx context.Context, q string, filter VictimFilter) ([]Victim, error) {
 	if q == "" {
 		return nil, errors.New("ransomware: search query is required")
+	}
+	if err := validateOrder(filter.Order); err != nil {
+		return nil, err
 	}
 	params := url.Values{}
 	params.Set("q", q)
@@ -652,8 +710,6 @@ func (c *Client) SearchVictimsWithContext(ctx context.Context, q string, filter 
 	return []Victim(out), err
 }
 
-// UnmarshalJSON normalises the alternate field names used across API
-// versions (see Victim).
 func (v *VictimDetail) UnmarshalJSON(data []byte) error {
 	type plain VictimDetail
 	var raw struct {
@@ -695,6 +751,9 @@ func (c *Client) GetVictim(victimID string) (*VictimDetail, error) {
 }
 
 func (c *Client) GetVictimWithContext(ctx context.Context, victimID string) (*VictimDetail, error) {
+	if err := requiredPathParam("victim ID", victimID); err != nil {
+		return nil, err
+	}
 	var out VictimDetail
 	err := c.get(ctx, escapePath("victim", victimID), nil, &out)
 	return &out, err
@@ -719,6 +778,9 @@ func (c *Client) GetGroupIOCs(group, iocType string) (*GroupIOCs, error) {
 }
 
 func (c *Client) GetGroupIOCsWithContext(ctx context.Context, group, iocType string) (*GroupIOCs, error) {
+	if err := requiredPathParam("group", group); err != nil {
+		return nil, err
+	}
 	params := url.Values{}
 	if iocType != "" {
 		params.Set("type", iocType)
@@ -767,12 +829,14 @@ func (c *Client) ListNegotiationChats(group string) ([]NegotiationChat, error) {
 }
 
 func (c *Client) ListNegotiationChatsWithContext(ctx context.Context, group string) ([]NegotiationChat, error) {
+	if err := requiredPathParam("group", group); err != nil {
+		return nil, err
+	}
 	var out []NegotiationChat
 	err := c.get(ctx, escapePath("negotiations", group), nil, &out)
 	return out, err
 }
 
-// UnmarshalJSON normalises legacy field names into the documented ones.
 func (n *NegotiationChatDetail) UnmarshalJSON(data []byte) error {
 	type plain NegotiationChatDetail
 	var raw struct {
@@ -798,6 +862,12 @@ func (c *Client) GetNegotiationChat(group, chatID string) (*NegotiationChatDetai
 }
 
 func (c *Client) GetNegotiationChatWithContext(ctx context.Context, group, chatID string) (*NegotiationChatDetail, error) {
+	if err := requiredPathParam("group", group); err != nil {
+		return nil, err
+	}
+	if err := requiredPathParam("chat ID", chatID); err != nil {
+		return nil, err
+	}
 	var out NegotiationChatDetail
 	err := c.get(ctx, escapePath("negotiations", group, chatID), nil, &out)
 	return &out, err
@@ -818,6 +888,9 @@ func (c *Client) ListRansomNotes(group string) ([]string, error) {
 }
 
 func (c *Client) ListRansomNotesWithContext(ctx context.Context, group string) ([]string, error) {
+	if err := requiredPathParam("group", group); err != nil {
+		return nil, err
+	}
 	var out []string
 	err := c.get(ctx, escapePath("ransomnotes", group), nil, &out)
 	return out, err
@@ -828,6 +901,12 @@ func (c *Client) GetRansomNote(group, noteName string) (*RansomNote, error) {
 }
 
 func (c *Client) GetRansomNoteWithContext(ctx context.Context, group, noteName string) (*RansomNote, error) {
+	if err := requiredPathParam("group", group); err != nil {
+		return nil, err
+	}
+	if err := requiredPathParam("note name", noteName); err != nil {
+		return nil, err
+	}
 	var out RansomNote
 	err := c.get(ctx, escapePath("ransomnotes", group, noteName), nil, &out)
 	return &out, err
@@ -848,6 +927,9 @@ func (c *Client) GetYARARules(group string) ([]YARARule, error) {
 }
 
 func (c *Client) GetYARARulesWithContext(ctx context.Context, group string) ([]YARARule, error) {
+	if err := requiredPathParam("group", group); err != nil {
+		return nil, err
+	}
 	var out []YARARule
 	err := c.get(ctx, escapePath("yara", group), nil, &out)
 	return out, err
@@ -858,6 +940,9 @@ func (c *Client) ListPressEntries(year, month, country string) ([]PressEntry, er
 }
 
 func (c *Client) ListPressEntriesWithContext(ctx context.Context, year, month, country string) ([]PressEntry, error) {
+	if month != "" && year == "" {
+		return nil, errors.New("ransomware: the month filter requires year")
+	}
 	params := url.Values{}
 	if year != "" {
 		params.Set("year", year)
@@ -892,6 +977,9 @@ func (c *Client) GetCSIRTContacts(country string) ([]CSIRTContact, error) {
 }
 
 func (c *Client) GetCSIRTContactsWithContext(ctx context.Context, country string) ([]CSIRTContact, error) {
+	if err := requiredPathParam("country", country); err != nil {
+		return nil, err
+	}
 	var out []CSIRTContact
 	err := c.get(ctx, escapePath("csirt", country), nil, &out)
 	return out, err
@@ -902,6 +990,9 @@ func (c *Client) GetSECFilings(ticker, cik, year, month string, item105, item801
 }
 
 func (c *Client) GetSECFilingsWithContext(ctx context.Context, ticker, cik, year, month string, item105, item801 bool) ([]SECFiling, error) {
+	if month != "" && year == "" {
+		return nil, errors.New("ransomware: the month filter requires year")
+	}
 	params := url.Values{}
 	if ticker != "" {
 		params.Set("ticker", ticker)
